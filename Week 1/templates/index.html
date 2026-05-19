@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MedAnnotate — Medical Image Annotator</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2236;
+    --border: #1f2d45;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --canvas-bg: #060a14;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* TOP BAR */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; height: 56px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .logo { font-family: 'Space Mono', monospace; font-size: 15px; color: var(--accent); letter-spacing: 2px; }
+  .logo span { color: var(--muted); }
+  .stats-bar { display: flex; gap: 24px; align-items: center; }
+  .stat { font-size: 12px; color: var(--muted); font-family: 'Space Mono', monospace; }
+  .stat b { color: var(--accent); }
+  .export-btn {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    padding: 6px 16px; border-radius: 4px; font-size: 12px; font-family: 'Space Mono', monospace;
+    cursor: pointer; letter-spacing: 1px; transition: all .2s;
+  }
+  .export-btn:hover { background: var(--accent); color: var(--bg); }
+
+  /* MAIN LAYOUT */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* LEFT PANEL - IMAGE LIST */
+  .sidebar {
+    width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11px; font-family: 'Space Mono', monospace; color: var(--muted);
+    letter-spacing: 1px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .upload-area {
+    padding: 12px; border-bottom: 1px solid var(--border);
+  }
+  .upload-drop {
+    border: 1px dashed var(--border); border-radius: 6px; padding: 12px;
+    text-align: center; cursor: pointer; transition: all .2s; font-size: 12px; color: var(--muted);
+  }
+  .upload-drop:hover, .upload-drop.drag { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,.05); }
+  .upload-drop input { display: none; }
+  .image-list { flex: 1; overflow-y: auto; }
+  .image-list::-webkit-scrollbar { width: 4px; }
+  .image-list::-webkit-scrollbar-track { background: transparent; }
+  .image-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .img-item {
+    padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; border-bottom: 1px solid rgba(31,45,69,.5);
+    transition: background .15s; font-size: 12px;
+  }
+  .img-item:hover { background: var(--surface2); }
+  .img-item.active { background: rgba(0,229,255,.08); border-left: 2px solid var(--accent); }
+  .img-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 3px; background: var(--border); flex-shrink: 0; }
+  .img-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .ann-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .ann-dot.done { background: var(--green); }
+  .ann-dot.pending { background: var(--border); }
+
+  /* CENTER CANVAS */
+  .canvas-area {
+    flex: 1; background: var(--canvas-bg); position: relative;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .canvas-toolbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+    background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .tool-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 4px; font-size: 11px; cursor: pointer;
+    font-family: 'Space Mono', monospace; letter-spacing: .5px; transition: all .15s;
+  }
+  .tool-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .tool-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .tool-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+  .zoom-info { font-size: 11px; color: var(--muted); font-family: 'Space Mono', monospace; margin-left: auto; }
+  .canvas-wrap { flex: 1; position: relative; overflow: hidden; cursor: crosshair; }
+  canvas { position: absolute; top: 0; left: 0; }
+  #bgCanvas { cursor: default; }
+  #annCanvas { }
+  .no-image-msg {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; color: var(--muted);
+  }
+  .no-image-msg h2 { font-size: 18px; font-family: 'Space Mono', monospace; color: var(--accent); margin-bottom: 8px; }
+  .no-image-msg p { font-size: 13px; }
+
+  /* RIGHT PANEL */
+  .right-panel {
+    width: 280px; background: var(--surface); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .panel-section { padding: 16px; border-bottom: 1px solid var(--border); }
+  .panel-label {
+    font-size: 10px; font-family: 'Space Mono', monospace; color: var(--muted);
+    letter-spacing: 1.5px; margin-bottom: 10px; text-transform: uppercase;
+  }
+
+  /* Labels */
+  .label-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .label-chip {
+    padding: 5px 12px; border-radius: 20px; font-size: 11px; cursor: pointer;
+    border: 1px solid var(--border); color: var(--muted); transition: all .15s;
+    font-family: 'Space Mono', monospace;
+  }
+  .label-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .label-chip.selected { color: var(--bg); border-color: transparent; }
+  .label-chip[data-color="cyan"].selected { background: var(--accent); }
+  .label-chip[data-color="purple"].selected { background: var(--accent2); }
+  .label-chip[data-color="green"].selected { background: var(--green); }
+  .label-chip[data-color="yellow"].selected { background: var(--yellow); }
+  .label-chip[data-color="red"].selected { background: var(--red); }
+  .custom-label-row { display: flex; gap: 6px; margin-top: 8px; }
+  .custom-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 12px;
+    outline: none;
+  }
+  .custom-input:focus { border-color: var(--accent); }
+  .add-label-btn {
+    background: var(--accent2); color: white; border: none; padding: 6px 12px;
+    border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+
+  /* Annotation list */
+  .ann-list { max-height: 180px; overflow-y: auto; }
+  .ann-list::-webkit-scrollbar { width: 3px; }
+  .ann-list::-webkit-scrollbar-thumb { background: var(--border); }
+  .ann-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    border-bottom: 1px solid rgba(31,45,69,.5); font-size: 11px;
+  }
+  .ann-color-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .ann-row-label { flex: 1; color: var(--text); }
+  .ann-row-type { color: var(--muted); font-family: 'Space Mono', monospace; font-size: 10px; }
+  .ann-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 4px; }
+  .ann-del:hover { color: var(--red); }
+  .no-ann-msg { font-size: 12px; color: var(--muted); padding: 8px 0; }
+
+  /* Notes */
+  .notes-ta {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 10px; border-radius: 4px; font-size: 12px;
+    resize: vertical; min-height: 80px; outline: none; font-family: 'DM Sans', sans-serif;
+  }
+  .notes-ta:focus { border-color: var(--accent); }
+
+  /* Save button */
+  .save-btn {
+    margin: 16px; padding: 12px; background: var(--accent); color: var(--bg);
+    border: none; border-radius: 6px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: 'Space Mono', monospace; letter-spacing: 1px;
+    transition: opacity .2s;
+  }
+  .save-btn:hover { opacity: .85; }
+  .save-btn:disabled { opacity: .4; cursor: default; }
+  .save-msg { text-align: center; font-size: 11px; color: var(--green); margin-top: -8px; margin-bottom: 8px; min-height: 16px; }
+
+  /* Nav buttons */
+  .nav-row { display: flex; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border); }
+  .nav-btn {
+    flex: 1; padding: 8px; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; font-size: 12px; cursor: pointer;
+    font-family: 'Space Mono', monospace; transition: all .15s;
+  }
+  .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">MED<span>ANNOTATE</span></div>
+  <div class="stats-bar">
+    <div class="stat">TOTAL: <b id="statTotal">0</b></div>
+    <div class="stat">DONE: <b id="statDone">0</b></div>
+    <div class="stat">LEFT: <b id="statLeft">0</b></div>
+  </div>
+  <button class="export-btn" onclick="exportAll()">⬇ EXPORT JSON</button>
+</header>
+
+<div class="main">
+  <!-- LEFT: Image List -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>IMAGES</span>
+      <span id="imgCount">0</span>
+    </div>
+    <div class="upload-area">
+      <div class="upload-drop" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" multiple accept=".png,.jpg,.jpeg,.bmp,.tiff,.tif" onchange="uploadFiles(this.files)">
+        ＋ Upload Images
+      </div>
+    </div>
+    <div class="image-list" id="imageList"></div>
+  </div>
+
+  <!-- CENTER: Canvas -->
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <button class="tool-btn active" id="btnBbox" onclick="setTool('bbox')">☐ BBox</button>
+      <button class="tool-btn" id="btnPoly" onclick="setTool('poly')">⬡ Polygon</button>
+      <button class="tool-btn" id="btnPoint" onclick="setTool('point')">◎ Point</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="undoLast()">↩ Undo</button>
+      <button class="tool-btn" onclick="clearCanvas()">✕ Clear</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" onclick="zoomIn()">＋</button>
+      <button class="tool-btn" onclick="zoomOut()">－</button>
+      <button class="tool-btn" onclick="resetZoom()">⊡ Fit</button>
+      <span class="zoom-info" id="zoomInfo">100%</span>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="bgCanvas"></canvas>
+      <canvas id="annCanvas"></canvas>
+      <div class="no-image-msg" id="noImageMsg">
+        <h2>[ NO IMAGE ]</h2>
+        <p>Upload or select an image to begin annotation</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Controls -->
+  <div class="right-panel">
+    <div class="panel-section">
+      <div class="panel-label">Classification Label</div>
+      <div class="label-grid" id="labelGrid">
+        <div class="label-chip" data-color="cyan" onclick="selectLabel(this, 'Normal')">Normal</div>
+        <div class="label-chip" data-color="red" onclick="selectLabel(this, 'Tumor')">Tumor</div>
+        <div class="label-chip" data-color="yellow" onclick="selectLabel(this, 'Fracture')">Fracture</div>
+        <div class="label-chip" data-color="green" onclick="selectLabel(this, 'Healthy')">Healthy</div>
+        <div class="label-chip" data-color="purple" onclick="selectLabel(this, 'Lesion')">Lesion</div>
+        <div class="label-chip" data-color="red" onclick="selectLabel(this, 'Abnormal')">Abnormal</div>
+      </div>
+      <div class="custom-label-row">
+        <input class="custom-input" id="customLabelInput" placeholder="Custom label..." />
+        <button class="add-label-btn" onclick="addCustomLabel()">+</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Drawing Label</div>
+      <div class="label-grid" id="drawLabelGrid">
+        <div class="label-chip" data-color="cyan" onclick="selectDrawLabel(this, 'ROI')" style="border-color:#00e5ff33">ROI</div>
+        <div class="label-chip" data-color="red" onclick="selectDrawLabel(this, 'Tumor')" style="border-color:#ef444433">Tumor</div>
+        <div class="label-chip" data-color="yellow" onclick="selectDrawLabel(this, 'Lesion')" style="border-color:#f59e0b33">Lesion</div>
+        <div class="label-chip" data-color="green" onclick="selectDrawLabel(this, 'Normal')" style="border-color:#10b98133">Normal</div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="flex:1; overflow-y:auto;">
+      <div class="panel-label">Annotations (<span id="annCount">0</span>)</div>
+      <div class="ann-list" id="annList">
+        <div class="no-ann-msg">No annotations yet</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Notes</div>
+      <textarea class="notes-ta" id="notesInput" placeholder="Clinical notes, observations..."></textarea>
+    </div>
+
+    <div class="save-msg" id="saveMsg"></div>
+    <button class="save-btn" onclick="saveAnnotations()">SAVE ANNOTATIONS</button>
+
+    <div class="nav-row">
+      <button class="nav-btn" onclick="navigate(-1)">← PREV</button>
+      <button class="nav-btn" onclick="navigate(1)">NEXT →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let images = [];
+let currentIdx = -1;
+let annotations = [];     // drawn shapes
+let classLabel = '';
+let drawLabel = 'ROI';
+let tool = 'bbox';
+let zoom = 1;
+let panX = 0, panY = 0;
+let drawing = false;
+let startX, startY;
+let polyPoints = [];
+let img = null;
+
+const LABEL_COLORS = { cyan: '#00e5ff', purple: '#7c3aed', green: '#10b981', yellow: '#f59e0b', red: '#ef4444' };
+const DRAW_LABEL_COLORS = { ROI: '#00e5ff', Tumor: '#ef4444', Lesion: '#f59e0b', Normal: '#10b981' };
+
+const bgCanvas = document.getElementById('bgCanvas');
+const annCanvas = document.getElementById('annCanvas');
+const bgCtx = bgCanvas.getContext('2d');
+const annCtx = annCanvas.getContext('2d');
+const wrap = document.getElementById('canvasWrap');
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  loadImages();
+  resizeCanvases();
+  setupDrop();
+});
+window.addEventListener('resize', () => { resizeCanvases(); redraw(); });
+
+function resizeCanvases() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  bgCanvas.width = annCanvas.width = w;
+  bgCanvas.height = annCanvas.height = h;
+}
+
+// ─── Image Load ───────────────────────────────────────────────────────────────
+async function loadImages() {
+  const res = await fetch('/api/images');
+  images = await res.json();
+  renderImageList();
+  updateStats();
+  document.getElementById('imgCount').textContent = images.length;
+}
+
+function renderImageList() {
+  const list = document.getElementById('imageList');
+  list.innerHTML = '';
+  images.forEach((im, i) => {
+    const div = document.createElement('div');
+    div.className = 'img-item' + (i === currentIdx ? ' active' : '');
+    div.innerHTML = `
+      <img class="img-thumb" src="/uploads/${im.filename}" alt="">
+      <span class="img-name" title="${im.filename}">${im.filename}</span>
+      <div class="ann-dot ${im.annotated ? 'done' : 'pending'}"></div>
+    `;
+    div.onclick = () => selectImage(i);
+    list.appendChild(div);
+  });
+}
+
+function selectImage(idx) {
+  currentIdx = idx;
+  const filename = images[idx].filename;
+  img = new Image();
+  img.onload = () => { fitImage(); redraw(); };
+  img.src = '/uploads/' + filename;
+  document.getElementById('noImageMsg').style.display = 'none';
+  renderImageList();
+  loadAnnotationData(filename);
+}
+
+function fitImage() {
+  if (!img) return;
+  const scaleX = wrap.clientWidth / img.width;
+  const scaleY = wrap.clientHeight / img.height;
+  zoom = Math.min(scaleX, scaleY, 1);
+  panX = (wrap.clientWidth - img.width * zoom) / 2;
+  panY = (wrap.clientHeight - img.height * zoom) / 2;
+  document.getElementById('zoomInfo').textContent = Math.round(zoom*100) + '%';
+}
+
+async function loadAnnotationData(filename) {
+  const res = await fetch('/api/annotations/' + filename);
+  const data = await res.json();
+  annotations = data.annotations || [];
+  classLabel = data.label || '';
+  document.getElementById('notesInput').value = data.notes || '';
+  // update label chips
+  document.querySelectorAll('#labelGrid .label-chip').forEach(c => {
+    c.classList.toggle('selected', c.textContent === classLabel);
+  });
+  renderAnnList();
+  redraw();
+}
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+async function uploadFiles(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  await fetch('/api/upload', { method: 'POST', body: fd });
+  await loadImages();
+  if (images.length > 0 && currentIdx < 0) selectImage(0);
+}
+
+function setupDrop() {
+  const zone = document.getElementById('dropZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag');
+    uploadFiles(e.dataTransfer.files);
+  });
+  wrap.addEventListener('dragover', e => e.preventDefault());
+  wrap.addEventListener('drop', e => { e.preventDefault(); uploadFiles(e.dataTransfer.files); });
+}
+
+// ─── Drawing ──────────────────────────────────────────────────────────────────
+annCanvas.addEventListener('mousedown', e => {
+  if (!img) return;
+  const { x, y } = toImgCoords(e);
+  if (tool === 'point') {
+    annotations.push({ type: 'point', x, y, label: drawLabel });
+    renderAnnList(); redraw(); return;
+  }
+  if (tool === 'poly') {
+    if (!drawing) { drawing = true; polyPoints = [{ x, y }]; }
+    else { polyPoints.push({ x, y }); }
+    redraw(); return;
+  }
+  drawing = true; startX = x; startY = y;
+});
+
+annCanvas.addEventListener('mousemove', e => {
+  if (!drawing || !img) return;
+  redraw();
+  const { x, y } = toImgCoords(e);
+  if (tool === 'bbox') {
+    const color = getDrawColor(drawLabel);
+    annCtx.strokeStyle = color; annCtx.lineWidth = 2 / zoom;
+    annCtx.setLineDash([5/zoom, 3/zoom]);
+    const sx = startX * zoom + panX, sy = startY * zoom + panY;
+    const ex = x * zoom + panX,     ey = y * zoom + panY;
+    annCtx.strokeRect(sx, sy, ex - sx, ey - sy);
+    annCtx.setLineDash([]);
+  }
+  if (tool === 'poly') {
+    const pts = [...polyPoints, { x, y }];
+    drawPolyPreview(pts, getDrawColor(drawLabel));
+  }
+});
+
+annCanvas.addEventListener('mouseup', e => {
+  if (!drawing || tool !== 'bbox' || !img) return;
+  const { x, y } = toImgCoords(e);
+  if (Math.abs(x - startX) < 3 && Math.abs(y - startY) < 3) { drawing = false; return; }
+  annotations.push({ type: 'bbox', x1: Math.min(startX, x), y1: Math.min(startY, y), x2: Math.max(startX, x), y2: Math.max(startY, y), label: drawLabel });
+  drawing = false; renderAnnList(); redraw();
+});
+
+annCanvas.addEventListener('dblclick', e => {
+  if (tool !== 'poly' || !drawing) return;
+  if (polyPoints.length >= 3) {
+    annotations.push({ type: 'polygon', points: [...polyPoints], label: drawLabel });
+    renderAnnList();
+  }
+  drawing = false; polyPoints = []; redraw();
+});
+
+function toImgCoords(e) {
+  const rect = annCanvas.getBoundingClientRect();
+  return { x: (e.clientX - rect.left - panX) / zoom, y: (e.clientY - rect.top - panY) / zoom };
+}
+
+// Zoom/Pan
+annCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const rect = annCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  panX = mx - (mx - panX) * factor;
+  panY = my - (my - panY) * factor;
+  zoom *= factor;
+  document.getElementById('zoomInfo').textContent = Math.round(zoom*100) + '%';
+  redraw();
+}, { passive: false });
+
+let panning = false, panStartX, panStartY, panStartPX, panStartPY;
+annCanvas.addEventListener('mousedown', e => { if (e.button === 1 || e.button === 2) { panning = true; panStartX = e.clientX; panStartY = e.clientY; panStartPX = panX; panStartPY = panY; } });
+annCanvas.addEventListener('mousemove', e => { if (panning) { panX = panStartPX + e.clientX - panStartX; panY = panStartPY + e.clientY - panStartY; redraw(); } });
+annCanvas.addEventListener('mouseup', e => { if (e.button === 1 || e.button === 2) panning = false; });
+annCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+function zoomIn() { zoom *= 1.2; redraw(); document.getElementById('zoomInfo').textContent = Math.round(zoom*100) + '%'; }
+function zoomOut() { zoom /= 1.2; redraw(); document.getElementById('zoomInfo').textContent = Math.round(zoom*100) + '%'; }
+function resetZoom() { if (img) fitImage(); redraw(); }
+
+// ─── Redraw ───────────────────────────────────────────────────────────────────
+function redraw() {
+  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  annCtx.clearRect(0, 0, annCanvas.width, annCanvas.height);
+  if (!img) return;
+  bgCtx.drawImage(img, panX, panY, img.width * zoom, img.height * zoom);
+  annotations.forEach(ann => drawAnnotation(ann));
+  if (tool === 'poly' && polyPoints.length > 0) drawPolyPreview(polyPoints, getDrawColor(drawLabel));
+}
+
+function drawAnnotation(ann) {
+  const color = getDrawColor(ann.label);
+  annCtx.strokeStyle = color;
+  annCtx.fillStyle = color.replace(')', ', 0.12)').replace('rgb(', 'rgba(').replace('#', '').padStart(8, '0');
+  // handle hex colors
+  if (ann.type === 'bbox') {
+    const x = ann.x1 * zoom + panX, y = ann.y1 * zoom + panY;
+    const w = (ann.x2 - ann.x1) * zoom, h = (ann.y2 - ann.y1) * zoom;
+    annCtx.lineWidth = 2;
+    annCtx.strokeRect(x, y, w, h);
+    // fill
+    annCtx.fillStyle = hexToRgba(color, 0.1);
+    annCtx.fillRect(x, y, w, h);
+    // label
+    drawLabel2(ann.label, x, y, color);
+  } else if (ann.type === 'polygon') {
+    annCtx.beginPath();
+    ann.points.forEach((p, i) => {
+      const px = p.x * zoom + panX, py = p.y * zoom + panY;
+      i === 0 ? annCtx.moveTo(px, py) : annCtx.lineTo(px, py);
+    });
+    annCtx.closePath();
+    annCtx.lineWidth = 2;
+    annCtx.stroke();
+    annCtx.fillStyle = hexToRgba(color, 0.1);
+    annCtx.fill();
+    if (ann.points.length > 0) drawLabel2(ann.label, ann.points[0].x * zoom + panX, ann.points[0].y * zoom + panY, color);
+  } else if (ann.type === 'point') {
+    const px = ann.x * zoom + panX, py = ann.y * zoom + panY;
+    annCtx.beginPath(); annCtx.arc(px, py, 5, 0, Math.PI * 2);
+    annCtx.fillStyle = color; annCtx.fill();
+    annCtx.strokeStyle = '#fff'; annCtx.lineWidth = 1.5; annCtx.stroke();
+    drawLabel2(ann.label, px + 8, py, color);
+  }
+}
+
+function drawLabel2(label, x, y, color) {
+  annCtx.font = '11px Space Mono, monospace';
+  const w = annCtx.measureText(label).width + 8;
+  annCtx.fillStyle = color;
+  annCtx.fillRect(x, y - 16, w, 16);
+  annCtx.fillStyle = '#000';
+  annCtx.fillText(label, x + 4, y - 4);
+}
+
+function drawPolyPreview(pts, color) {
+  annCtx.strokeStyle = color; annCtx.lineWidth = 2; annCtx.setLineDash([5, 3]);
+  annCtx.beginPath();
+  pts.forEach((p, i) => {
+    const px = p.x * zoom + panX, py = p.y * zoom + panY;
+    i === 0 ? annCtx.moveTo(px, py) : annCtx.lineTo(px, py);
+  });
+  annCtx.stroke(); annCtx.setLineDash([]);
+  pts.forEach(p => {
+    annCtx.beginPath(); annCtx.arc(p.x * zoom + panX, p.y * zoom + panY, 3, 0, Math.PI * 2);
+    annCtx.fillStyle = color; annCtx.fill();
+  });
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function getDrawColor(label) {
+  return DRAW_LABEL_COLORS[label] || '#00e5ff';
+}
+
+// ─── Tools ────────────────────────────────────────────────────────────────────
+function setTool(t) {
+  tool = t; drawing = false; polyPoints = [];
+  ['bbox','poly','point'].forEach(id => document.getElementById('btn' + id.charAt(0).toUpperCase() + id.slice(1)).classList.remove('active'));
+  document.getElementById('btn' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('active');
+}
+
+function undoLast() { annotations.pop(); renderAnnList(); redraw(); }
+function clearCanvas() { annotations = []; polyPoints = []; drawing = false; renderAnnList(); redraw(); }
+
+// ─── Labels ───────────────────────────────────────────────────────────────────
+function selectLabel(el, label) {
+  classLabel = label;
+  document.querySelectorAll('#labelGrid .label-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function selectDrawLabel(el, label) {
+  drawLabel = label;
+  document.querySelectorAll('#drawLabelGrid .label-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function addCustomLabel() {
+  const val = document.getElementById('customLabelInput').value.trim();
+  if (!val) return;
+  const grid = document.getElementById('labelGrid');
+  const chip = document.createElement('div');
+  chip.className = 'label-chip'; chip.dataset.color = 'cyan';
+  chip.textContent = val;
+  chip.onclick = () => selectLabel(chip, val);
+  grid.appendChild(chip);
+  document.getElementById('customLabelInput').value = '';
+}
+
+// ─── Annotation List ──────────────────────────────────────────────────────────
+function renderAnnList() {
+  const list = document.getElementById('annList');
+  document.getElementById('annCount').textContent = annotations.length;
+  if (!annotations.length) { list.innerHTML = '<div class="no-ann-msg">No annotations yet</div>'; return; }
+  list.innerHTML = '';
+  annotations.forEach((ann, i) => {
+    const row = document.createElement('div');
+    row.className = 'ann-row';
+    row.innerHTML = `
+      <div class="ann-color-dot" style="background:${getDrawColor(ann.label)}"></div>
+      <span class="ann-row-label">${ann.label}</span>
+      <span class="ann-row-type">${ann.type.toUpperCase()}</span>
+      <button class="ann-del" onclick="deleteAnn(${i})">×</button>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function deleteAnn(i) { annotations.splice(i, 1); renderAnnList(); redraw(); }
+
+// ─── Save / Export ────────────────────────────────────────────────────────────
+async function saveAnnotations() {
+  if (currentIdx < 0) return;
+  const filename = images[currentIdx].filename;
+  const data = { annotations, label: classLabel, notes: document.getElementById('notesInput').value };
+  await fetch('/api/annotations/' + filename, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+  images[currentIdx].annotated = true;
+  renderImageList();
+  updateStats();
+  const msg = document.getElementById('saveMsg');
+  msg.textContent = '✓ Saved successfully';
+  setTimeout(() => msg.textContent = '', 2000);
+}
+
+async function exportAll() {
+  const res = await fetch('/api/export');
+  const data = await res.json();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'annotations_export.json'; a.click();
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function navigate(dir) {
+  if (!images.length) return;
+  const next = (currentIdx + dir + images.length) % images.length;
+  selectImage(next);
+}
+
+async function updateStats() {
+  const res = await fetch('/api/stats');
+  const d = await res.json();
+  document.getElementById('statTotal').textContent = d.total;
+  document.getElementById('statDone').textContent = d.annotated;
+  document.getElementById('statLeft').textContent = d.remaining;
+}
+</script>
+</body>
+</html>
